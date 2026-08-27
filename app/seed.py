@@ -1,6 +1,10 @@
 from sqlalchemy.orm import Session
 
-from .models import Job
+from .auth import hash_password
+from .models import AdminUser, Job
+
+SEED_ADMIN_EMAIL = "care@softsove.com"
+SEED_ADMIN_PASSWORD = "Softsove@2026@@$"
 
 SEED_JOBS = [
     {
@@ -50,4 +54,16 @@ def seed_jobs(db: Session) -> None:
         return
     for row in SEED_JOBS:
         db.add(Job(**row))
+    db.commit()
+
+
+def seed_admin(db: Session) -> None:
+    if db.query(AdminUser).count():
+        return
+    db.add(
+        AdminUser(
+            email=SEED_ADMIN_EMAIL.lower(),
+            password_hash=hash_password(SEED_ADMIN_PASSWORD),
+        )
+    )
     db.commit()

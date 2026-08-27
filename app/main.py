@@ -10,12 +10,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 
-from .auth import create_token, password_ok, require_admin
+from .auth import create_token, hash_password, require_admin, verify_password
 from .config import settings
 from .database import Base, engine, get_db
-from .models import Application, Job
-from .schemas import ApplicationOut, JobOut, JobPatch, JobWrite, LoginIn
-from .seed import seed_jobs
+from .models import AdminUser, Application, Job
+from .schemas import ApplicationOut, JobOut, JobPatch, JobWrite, LoginIn, PasswordChangeIn
+from .seed import seed_admin, seed_jobs
 
 EMAIL_OK = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 CV_EXTS = {".pdf", ".doc", ".docx"}
@@ -41,6 +41,7 @@ def on_startup() -> None:
     db = next(get_db())
     try:
         seed_jobs(db)
+        seed_admin(db)
     finally:
         db.close()
 
@@ -146,10 +147,26 @@ async def apply(
 
 
 @app.post("/admin/login")
-def admin_login(body: LoginIn) -> dict:
-    if not password_ok(body.password):
-        raise HTTPException(status_code=401, detail="Wrong password.")
-    return {"token": create_token()}
+def admin_login(body: LoginIn, db: Session = Depends(get_db)) -> dict:
+    email = body.email.strip().lower()
+    admin = db.query(AdminUser).filter(AdminUser.email == email).first()
+    if not admin or not verify_password(body.password, admin.password_hash):
+        raise HTTPException(status_code=401, detail="Wrong email or password.")
+    return {"token": create_token(admin.email), "email": admin.email}
+
+
+@app.post("/admin/password")
+def change_admin_password(
+    body: PasswordChangeIn,
+    email: str = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    admin = db.query(AdminUser).filter(AdminUser.email == email).first()
+    if not admin or not verify_password(body.current_password, admin.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is wrong.")
+    admin.password_hash = hash_password(body.new_password)
+    db.commit()
+    return {"success": True, "message": "Password updated."}
 
 
 @app.get("/admin/jobs", response_model=List[JobOut])

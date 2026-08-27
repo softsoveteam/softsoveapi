@@ -43,3 +43,12 @@ class Application(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     job: Mapped[Job] = relationship(back_populates="applications")
+
+
+class AdminUser(Base):
+    __tablename__ = "admins"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str] = mapped_column(String(200), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
