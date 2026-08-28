@@ -76,6 +76,16 @@ def contact_json(success: bool, message: str, status: int = 200) -> JSONResponse
     return JSONResponse({"success": success, "message": message}, status_code=status)
 
 
+@app.get("/")
+def root() -> dict:
+    return {
+        "status": "ok",
+        "service": "softsove-api",
+        "docs": "/docs",
+        "health": "/health",
+    }
+
+
 @app.get("/health")
 def health(db: Session = Depends(get_db)) -> dict:
     return {

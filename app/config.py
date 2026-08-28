@@ -12,8 +12,8 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
-    cors_origin_regex: str = r"https://([a-z0-9-]+\.)?softsove\.com"
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000,https://softsove.vercel.app,https://softsove.com,https://www.softsove.com"
+    cors_origin_regex: str = r"https://([a-z0-9-]+\.)?softsove\.com|https://softsove\.vercel\.app"
     upload_dir: str = "uploads/cvs"
     database_url: str = "sqlite:///./data/softsove.db"
     secret_key: str = "change-this-secret-key"
