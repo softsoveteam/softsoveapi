@@ -37,6 +37,14 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def collapse_duplicate_slashes(request: Request, call_next):
+    path = request.scope.get("path") or ""
+    if "//" in path:
+        request.scope["path"] = re.sub(r"/{2,}", "/", path)
+    return await call_next(request)
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
@@ -200,6 +208,7 @@ async def apply(
     )
 
 
+@app.post("/login")
 @app.post("/admin/login")
 def admin_login(body: LoginIn, db: Session = Depends(get_db)) -> dict:
     email = body.email.strip().lower()
