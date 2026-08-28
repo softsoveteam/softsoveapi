@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import base64
 import hashlib
+import hmac
+import json
 import secrets
-from typing import Dict, Optional
+import time
+from typing import Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-_tokens: Dict[str, str] = {}
+from .config import settings
+
 _bearer = HTTPBearer(auto_error=False)
+TOKEN_MAX_AGE = 60 * 60 * 24 * 14
 
 
 def hash_password(password: str) -> str:
@@ -33,9 +39,25 @@ def verify_password(password: str, stored: str) -> bool:
 
 
 def create_token(email: str) -> str:
-    token = secrets.token_urlsafe(32)
-    _tokens[token] = email.lower()
-    return token
+    payload = json.dumps({"e": email.lower(), "t": int(time.time())}, separators=(",", ":"))
+    body = base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
+    sig = hmac.new(settings.secret_key.encode("utf-8"), body.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{body}.{sig}"
+
+
+def read_token(token: str) -> Optional[str]:
+    try:
+        body, sig = token.split(".", 1)
+        expected = hmac.new(settings.secret_key.encode("utf-8"), body.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, sig):
+            return None
+        pad = "=" * (-len(body) % 4)
+        data = json.loads(base64.urlsafe_b64decode(body + pad))
+        if int(time.time()) - int(data["t"]) > TOKEN_MAX_AGE:
+            return None
+        return str(data["e"])
+    except Exception:
+        return None
 
 
 def require_admin(
@@ -43,7 +65,7 @@ def require_admin(
 ) -> str:
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Admin login required.")
-    email = _tokens.get(credentials.credentials)
+    email = read_token(credentials.credentials)
     if not email:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired admin token.")
     return email

@@ -1,17 +1,19 @@
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 
 from .auth import create_token, hash_password, require_admin, verify_password
 from .config import settings
+from .mail import MailConfigError, send_contact_mail
 from .database import Base, engine, get_db
 from .models import AdminUser, Application, Job
 from .schemas import ApplicationOut, JobOut, JobPatch, JobWrite, LoginIn, PasswordChangeIn
@@ -28,6 +30,7 @@ app = FastAPI(title="Softsove API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()],
+    allow_origin_regex=settings.cors_origin_regex or None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -42,6 +45,10 @@ def on_startup() -> None:
     try:
         seed_jobs(db)
         seed_admin(db)
+        logging.info("Database ready (%s), admins=%s", engine.dialect.name, db.query(AdminUser).count())
+    except Exception:
+        logging.exception("Database seed failed")
+        raise
     finally:
         db.close()
 
@@ -65,9 +72,46 @@ def unique_slug(db: Session, base: str, ignore_id: Optional[int] = None) -> str:
         n += 1
 
 
+def contact_json(success: bool, message: str, status: int = 200) -> JSONResponse:
+    return JSONResponse({"success": success, "message": message}, status_code=status)
+
+
 @app.get("/health")
-def health() -> dict:
-    return {"status": "ok", "service": "softsove-api"}
+def health(db: Session = Depends(get_db)) -> dict:
+    return {
+        "status": "ok",
+        "service": "softsove-api",
+        "database": engine.dialect.name,
+        "admins": db.query(AdminUser).count(),
+    }
+
+
+@app.post("/contact")
+async def contact(request: Request) -> JSONResponse:
+    content_type = request.headers.get("content-type") or ""
+    fields: dict[str, str] = {}
+    try:
+        if "application/json" in content_type:
+            body = await request.json()
+            if isinstance(body, dict):
+                fields = {str(key): "" if value is None else str(value) for key, value in body.items()}
+        else:
+            form = await request.form()
+            fields = {str(key): str(value) for key, value in form.items()}
+    except Exception:
+        return contact_json(False, "Invalid request body.")
+
+    try:
+        send_contact_mail(fields)
+    except MailConfigError as exc:
+        return contact_json(False, str(exc))
+    except ValueError as exc:
+        return contact_json(False, str(exc))
+    except Exception:
+        logging.exception("Contact mail failed")
+        return contact_json(False, "Sorry, email could not be sent.")
+
+    return contact_json(True, "Thank you! Email sent successfully.")
 
 
 @app.get("/jobs", response_model=List[JobOut])

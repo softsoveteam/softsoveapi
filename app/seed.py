@@ -58,11 +58,12 @@ def seed_jobs(db: Session) -> None:
 
 
 def seed_admin(db: Session) -> None:
-    if db.query(AdminUser).count():
+    email = SEED_ADMIN_EMAIL.lower()
+    if db.query(AdminUser).filter(AdminUser.email == email).first():
         return
     db.add(
         AdminUser(
-            email=SEED_ADMIN_EMAIL.lower(),
+            email=email,
             password_hash=hash_password(SEED_ADMIN_PASSWORD),
         )
     )
